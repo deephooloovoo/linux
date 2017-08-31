@@ -1303,15 +1303,26 @@ static void s3c_fb_set_rgb_timing(struct s3c_fb *sfb)
 	clkdiv = s3c_fb_calc_pixclk(sfb, vmode->pixclock);
 
 	data = sfb->pdata->vidcon0;
-	data &= ~(VIDCON0_CLKVAL_F_MASK | VIDCON0_CLKDIR);
-
-	if (clkdiv > 1)
-		data |= VIDCON0_CLKVAL_F(clkdiv-1) | VIDCON0_CLKDIR;
-	else
-		data &= ~VIDCON0_CLKDIR;	/* 1:1 clock */
-
 	if (sfb->variant.is_2443)
-		data |= (1 << 5);
+	{
+		data &= ~(VIDCON0_2443_CLKVAL_F_MASK | VIDCON0_CLKDIR);
+
+		if (clkdiv > 1)
+			data |= VIDCON0_2443_CLKVAL_F(clkdiv-1) | VIDCON0_CLKDIR;
+		else
+			data &= ~VIDCON0_2443_CLKDIR;	/* 1:1 clock */
+		data |= VIDCON0_2443_VLCKEN;
+	}
+	else
+	{
+		data &= ~(VIDCON0_CLKVAL_F_MASK | VIDCON0_CLKDIR);
+
+		if (clkdiv > 1)
+			data |= VIDCON0_CLKVAL_F(clkdiv-1) | VIDCON0_CLKDIR;
+		else
+			data &= ~VIDCON0_CLKDIR;	/* 1:1 clock */
+	}
+
 	writel(data, regs + VIDCON0);
 
 	data = VIDTCON0_VBPD(vmode->upper_margin - 1) |
