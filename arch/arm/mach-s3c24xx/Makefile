@@ -66,6 +66,7 @@ obj-$(CONFIG_MACH_VSTMS)		+= mach-vstms.o
 
 obj-$(CONFIG_MACH_SMDK2416)		+= mach-smdk2416.o
 obj-$(CONFIG_MACH_S3C2416_DT)		+= mach-s3c2416-dt.o
+obj-$(CONFIG_MACH_HP_PRIME)		+= mach-hp_prime.o
 
 obj-$(CONFIG_MACH_ANUBIS)		+= mach-anubis.o
 obj-$(CONFIG_MACH_AT2440EVB)		+= mach-at2440evb.o
