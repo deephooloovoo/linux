@@ -18,75 +18,73 @@
 #include <linux/clocksource.h>
 #include <linux/irqchip.h>
 #include <linux/serial_s3c.h>
+#include <linux/of_irq.h>
+#include <linux/of_address.h>
+#include <linux/of_platform.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 #include <mach/map.h>
 #include <asm/system_misc.h>
 
+#include <video/samsung_fimd.h>
+#include <mach/regs-gpio.h>
+#include <mach/gpio-samsung.h>
+#include <mach/regs-lcd.h>
+
 #include <plat/cpu.h>
 #include <plat/pm.h>
+#include <plat/fb.h>
+#include <plat/gpio-cfg.h>
 
 #include "common.h"
-/*static struct map_desc hp_prime_iodesc[] __initdata = {
+static void s3c2416_fb_gpio_setup_24bpp(void)
+{
+	unsigned int gpio;
 
-	{
-		.virtual	= (u32)S3C24XX_VA_ISA_WORD,
-		.pfn		= __phys_to_pfn(S3C2410_CS2),
-		.length		= 0x10000,
-		.type		= MT_DEVICE,
-	}, {
-		.virtual	= (u32)S3C24XX_VA_ISA_WORD + 0x10000,
-		.pfn		= __phys_to_pfn(S3C2410_CS2 + (1<<24)),
-		.length		= SZ_4M,
-		.type		= MT_DEVICE,
-	}, {
-		.virtual	= (u32)S3C24XX_VA_ISA_BYTE,
-		.pfn		= __phys_to_pfn(S3C2410_CS2),
-		.length		= 0x10000,
-		.type		= MT_DEVICE,
-	}, {
-		.virtual	= (u32)S3C24XX_VA_ISA_BYTE + 0x10000,
-		.pfn		= __phys_to_pfn(S3C2410_CS2 + (1<<24)),
-		.length		= SZ_4M,
-		.type		= MT_DEVICE,
+	for (gpio = S3C2410_GPC(1); gpio <= S3C2410_GPC(4); gpio++) {
+		s3c_gpio_cfgpin(gpio, S3C_GPIO_SFN(2));
+		s3c_gpio_setpull(gpio, S3C_GPIO_PULL_NONE);
 	}
-};*/
-#define UCON (S3C2410_UCON_DEFAULT	| \
-		S3C2440_UCON_PCLK	| \
-		S3C2443_UCON_RXERR_IRQEN)
 
-#define ULCON (S3C2410_LCON_CS8 | S3C2410_LCON_PNONE)
-
-#define UFCON (S3C2410_UFCON_RXTRIG8	| \
-		S3C2410_UFCON_FIFOMODE	| \
-		S3C2440_UFCON_TXTRIG16)
-/*static struct s3c2410_uartcfg hp_prime_uartcfgs[] __initdata = {
-	[0] = {
-		.hwport	     = 0,
-		.flags	     = 0,
-		.ucon	     = UCON,
-		.ulcon	     = ULCON,
-		.ufcon	     = UFCON,
+	for (gpio = S3C2410_GPC(8); gpio <= S3C2410_GPC(15); gpio++) {
+		s3c_gpio_cfgpin(gpio, S3C_GPIO_SFN(2));
+		s3c_gpio_setpull(gpio, S3C_GPIO_PULL_NONE);
 	}
-};*/
+
+	for (gpio = S3C2410_GPD(0); gpio <= S3C2410_GPD(15); gpio++) {
+		s3c_gpio_cfgpin(gpio, S3C_GPIO_SFN(2));
+		s3c_gpio_setpull(gpio, S3C_GPIO_PULL_NONE);
+	}
+}
+static struct s3c_fb_platdata s3c2416_fb_platdata = {
+	.setup_gpio	= s3c2416_fb_gpio_setup_24bpp,
+};
+
+static struct of_dev_auxdata s3c2416_auxdata_lookup[] __initdata =  {
+	OF_DEV_AUXDATA("samsung,s3c2443-fb",0x4c800000,NULL, &s3c2416_fb_platdata),
+    { }
+};
+
 static struct map_desc s3c2416_iodesc[] __initdata = {
 };
+
+
 static void __init s3c2416_dt_map_io(void)
 {
 	s3c24xx_init_io(s3c2416_iodesc, ARRAY_SIZE(s3c2416_iodesc));
-//	s3c24xx_init_uarts(hp_prime_uartcfgs, ARRAY_SIZE(hp_prime_uartcfgs));
 }
 
 static void __init s3c2416_dt_machine_init(void)
 {
+// potentially needed for FB of_platform_default_populate(NULL, s3c2416_auxdata_lookup, NULL);
 	s3c_pm_init();
 }
 
 static const char *const s3c2416_dt_compat[] __initconst = {
 	"samsung,s3c2416",
 	"samsung,s3c2450",
-    "hp,hp_prime",
+	"hp,hp_prime",
 	NULL
 };
 
