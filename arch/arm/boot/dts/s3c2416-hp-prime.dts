@@ -31,10 +31,18 @@
 			#clock-cells = <0>;
 		};
 	};
-	lcd@4c800000 {
-		compatible = "samsung,s3c2443-lcd";
+	/* eventually, FB will be set up to work with DT, but not yet
+	fb: lcd@4c800000 {
+		reg = <0x4c800000 0x4000>;
+		compatible = "samsung,s3c2443-fb";
 		clocks = <&clocks PCLK_I2C0>;
 		clock-names = "i2c";
+	};*/
+	pinctrl@56000000 {
+		compatible = "samsung,s3c2416-pinctrl";
+		wakeup-interrupt-controller {
+			compatible = ""; // this doesn't seem to anything on the Prime
+		};
 	};
 };
 
