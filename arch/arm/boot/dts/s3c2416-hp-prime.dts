@@ -31,13 +31,30 @@
 			#clock-cells = <0>;
 		};
 	};
-	/* eventually, FB will be set up to work with DT, but not yet
+	// eventually, FB will be set up to work with DT, but not yet
 	fb: lcd@4c800000 {
 		reg = <0x4c800000 0x4000>;
 		compatible = "samsung,s3c2443-fb";
 		clocks = <&clocks PCLK_I2C0>;
 		clock-names = "i2c";
-	};*/
+		samsung,vidcon0 = <0x4270>;
+		samsung,vidcon1 = <0x80>;
+		interrupts = <0 0 16 4>;
+		display-timings {
+			native-mode = <&timing0>;
+			timing0: 320x240 {
+				hactive		= <320>;
+				vactive		= <240>;
+				hfront-porch	= <18>;
+				hback-porch	= <65>;
+				hsync-len	= <1>;
+				vfront-porch	= <4>;
+				vback-porch	= <18>;
+				vsync-len	= <1>;
+				clock-frequency = <12698412>;
+			};
+		};
+	};
 	pinctrl@56000000 {
 		compatible = "samsung,s3c2416-pinctrl";
 		wakeup-interrupt-controller {

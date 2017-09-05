@@ -21,10 +21,12 @@
 #include <linux/clk.h>
 #include <linux/fb.h>
 #include <linux/io.h>
+#include <linux/of.h>
 #include <linux/uaccess.h>
 #include <linux/interrupt.h>
 #include <linux/pm_runtime.h>
 #include <linux/platform_data/video_s3c.h>
+#include <video/of_display_timing.h>
 
 #include <video/samsung_fimd.h>
 
@@ -213,7 +215,14 @@ struct s3c_fb {
 	unsigned char		 enabled;
 	bool			 output_on;
 
-	struct s3c_fb_platdata	*pdata;
+	void			(*setup_gpio)(void);
+	struct s3c_fb_pd_win	*win[S3C_FB_MAX_WIN];
+	struct fb_videomode	*vtiming;
+	u32			vidcon0;
+	u32			vidcon1;
+
+
+
 	struct s3c_fb_win	*windows[S3C_FB_MAX_WIN];
 
 	int			 irq_no;
@@ -1194,8 +1203,8 @@ static int s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 		return -ENOENT;
 	}
 
-	windata = sfb->pdata->win[win_no];
-	initmode = *sfb->pdata->vtiming;
+	windata = sfb->win[win_no];
+	initmode = *sfb->vtiming;
 
 	WARN_ON(windata->max_bpp == 0);
 	WARN_ON(windata->xres == 0);
@@ -1292,7 +1301,7 @@ static int s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
  */
 static void s3c_fb_set_rgb_timing(struct s3c_fb *sfb)
 {
-	struct fb_videomode *vmode = sfb->pdata->vtiming;
+	struct fb_videomode *vmode = sfb->vtiming;
 	void __iomem *regs = sfb->regs;
 	int clkdiv;
 	u32 data;
@@ -1302,7 +1311,7 @@ static void s3c_fb_set_rgb_timing(struct s3c_fb *sfb)
 
 	clkdiv = s3c_fb_calc_pixclk(sfb, vmode->pixclock);
 
-	data = sfb->pdata->vidcon0;
+	data = sfb->vidcon0;
 	if (sfb->variant.is_2443)
 	{
 		data &= ~(VIDCON0_2443_CLKVAL_F_MASK | VIDCON0_CLKDIR);
@@ -1368,9 +1377,35 @@ static void s3c_fb_clear_win(struct s3c_fb *sfb, int win)
 	}
 }
 
+static const struct of_device_id s3c_fb_dt_match[];
+
+static inline struct s3c_fb_driverdata *s3c_fb_get_driverdata(
+	struct platform_device *pdev)
+{
+	#ifdef CONFIG_OF
+	if (pdev->dev.of_node) {
+	    const struct of_device_id *match;
+	    match = of_match_node(s3c_fb_dt_match, pdev->dev.of_node);
+	    return (struct s3c_fb_driverdata *)match->data;
+	}
+	#endif
+	return (struct s3c_fb_driverdata *)
+		platform_get_device_id(pdev)->driver_data;
+}
+/*static void s3c_fb_free_platdata(struct device *dev, struct s3c_fb_platdata * pd)
+{
+	if (pd->vtiming) {
+		devm_kfree(dev, pd->vtiming);
+	}
+	if (pd->win) {
+		devm_kfree(dev, pd->win);
+	}
+	devm_kfree(dev,pd);
+}*/
+
 static int s3c_fb_probe(struct platform_device *pdev)
 {
-	const struct platform_device_id *platid;
+	//const struct platform_device_id *platid;
 	struct s3c_fb_driverdata *fbdrv;
 	struct device *dev = &pdev->dev;
 	struct s3c_fb_platdata *pd;
@@ -1380,8 +1415,7 @@ static int s3c_fb_probe(struct platform_device *pdev)
 	int ret = 0;
 	u32 reg;
 
-	platid = platform_get_device_id(pdev);
-	fbdrv = (struct s3c_fb_driverdata *)platid->driver_data;
+	fbdrv = s3c_fb_get_driverdata(pdev);
 
 	if (fbdrv->variant.nr_windows > S3C_FB_MAX_WIN) {
 		dev_err(dev, "too many windows, cannot attach\n");
@@ -1389,21 +1423,51 @@ static int s3c_fb_probe(struct platform_device *pdev)
 	}
 
 	pd = dev_get_platdata(&pdev->dev);
-	if (!pd) {
+	if (!pd && !( dev->of_node)) {
 		dev_err(dev, "no platform data specified\n");
 		return -EINVAL;
 	}
+
 
 	sfb = devm_kzalloc(dev, sizeof(struct s3c_fb), GFP_KERNEL);
 	if (!sfb) {
 		dev_err(dev, "no memory for framebuffers\n");
 		return -ENOMEM;
 	}
+	if (pd) {
+		sfb->setup_gpio = pd->setup_gpio;
+		win = 0;
+		for (win = 0; win < S3C_FB_MAX_WIN; win++)
+			sfb->win[win]	= pd->win[win];
+		sfb->vtiming	= pd->vtiming;
+		sfb->vidcon0	= pd->vidcon0;
+		sfb->vidcon1	= pd->vidcon1;
+	} else if (dev->of_node) {
+		//read parameters from the device tree
+		of_property_read_u32(dev->of_node, "samsung,vidcon0",&sfb->vidcon0);
+		of_property_read_u32(dev->of_node, "samsung,vidcon1",&sfb->vidcon1);
+		sfb->vtiming = devm_kzalloc(dev, sizeof(struct fb_videomode), GFP_KERNEL);
+		if (!sfb->vtiming){
+			dev_err(dev, "no memory for vtimings\n");
+			return -ENOMEM;
+		}
+		// read the FB timings
+		ret = of_get_fb_videomode(dev->of_node, sfb->vtiming, OF_USE_NATIVE_MODE);
+		sfb->win[0] = devm_kzalloc(dev, sizeof(struct s3c_fb_pd_win), GFP_KERNEL);
+		if (!sfb->win[0]) {
+			dev_err(dev, "no memory for window\n");
+			return -ENOMEM;
+		}
+		//TODO: figure out how to read these from the device tree
+		sfb->win[0]->default_bpp=24;
+		sfb->win[0]->max_bpp=24;
+		sfb->win[0]->xres=320;
+		sfb->win[0]->yres=240;
+	}
 
 	dev_dbg(dev, "allocate new framebuffer %p\n", sfb);
 
 	sfb->dev = dev;
-	sfb->pdata = pd;
 	sfb->variant = fbdrv->variant;
 
 	spin_lock_init(&sfb->slock);
@@ -1429,8 +1493,13 @@ static int s3c_fb_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(sfb->dev);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	sfb->regs = devm_ioremap_resource(dev, res);
+	//if (pd) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		sfb->regs = devm_ioremap_resource(dev, res);
+	/*}
+	else if (dev->of_node) {
+		;
+	}*/
 	if (IS_ERR(sfb->regs)) {
 		ret = PTR_ERR(sfb->regs);
 		goto err_lcd_clk;
@@ -1457,9 +1526,10 @@ static int s3c_fb_probe(struct platform_device *pdev)
 
 	/* setup gpio and output polarity controls */
 
-	pd->setup_gpio();
+	if (sfb->setup_gpio)
+		sfb->setup_gpio();
 
-	writel(pd->vidcon1, sfb->regs + VIDCON1);
+	writel(sfb->vidcon1, sfb->regs + VIDCON1);
 
 	/* set video clock running at under-run */
 	if (sfb->variant.has_fixvclk) {
@@ -1488,7 +1558,7 @@ static int s3c_fb_probe(struct platform_device *pdev)
 	/* we have the register setup, start allocating framebuffers */
 
 	for (win = 0; win < fbdrv->variant.nr_windows; win++) {
-		if (!pd->win[win])
+		if (!sfb->win[win])
 			continue;
 
 		ret = s3c_fb_probe_win(sfb, win, fbdrv->win[win],
@@ -1517,6 +1587,10 @@ err_lcd_clk:
 
 err_bus_clk:
 	clk_disable_unprepare(sfb->bus_clk);
+/*err_dt:
+err_alloc:
+	if (dev->of_node)
+		s3c_fb_free_platdata(dev,pd);*/
 
 	return ret;
 }
@@ -1581,7 +1655,6 @@ static int s3c_fb_suspend(struct device *dev)
 static int s3c_fb_resume(struct device *dev)
 {
 	struct s3c_fb *sfb = dev_get_drvdata(dev);
-	struct s3c_fb_platdata *pd = sfb->pdata;
 	struct s3c_fb_win *win;
 	int win_no;
 	u32 reg;
@@ -1594,8 +1667,9 @@ static int s3c_fb_resume(struct device *dev)
 		clk_prepare_enable(sfb->lcd_clk);
 
 	/* setup gpio and output polarity controls */
-	pd->setup_gpio();
-	writel(pd->vidcon1, sfb->regs + VIDCON1);
+	if (sfb->setup_gpio)
+		sfb->setup_gpio();
+	writel(sfb->vidcon1, sfb->regs + VIDCON1);
 
 	/* set video clock running at under-run */
 	if (sfb->variant.has_fixvclk) {
@@ -1969,6 +2043,23 @@ static const struct platform_device_id s3c_fb_driver_ids[] = {
 };
 MODULE_DEVICE_TABLE(platform, s3c_fb_driver_ids);
 
+#ifdef CONFIG_OF
+static const struct of_device_id s3c_fb_dt_match[] = {
+	{ .compatible = "samsung,s3c-fb",
+		.data = (void *)&s3c_fb_data_64xx },
+	{ .compatible = "samsung,s5pv210-fb",
+		.data = (void *)&s3c_fb_data_s5pv210 },
+	{ .compatible = "samsung,exynos4-fb",
+		.data = (void *)&s3c_fb_data_exynos4 },
+	{ .compatible = "samsung,exynos5-fb",
+		.data = (void *)&s3c_fb_data_exynos5 },
+	{ .compatible = "samsung,s3c2443-fb",
+		.data = (void *)&s3c_fb_data_s3c2443 },
+	{},
+};
+MODULE_DEVICE_TABLE(of, s3c_fb_dt_match);
+#endif
+
 static const struct dev_pm_ops s3cfb_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(s3c_fb_suspend, s3c_fb_resume)
 	SET_RUNTIME_PM_OPS(s3c_fb_runtime_suspend, s3c_fb_runtime_resume,
@@ -1982,6 +2073,7 @@ static struct platform_driver s3c_fb_driver = {
 	.driver		= {
 		.name	= "s3c-fb",
 		.pm	= &s3cfb_pm_ops,
+		.of_match_table	= of_match_ptr(s3c_fb_dt_match),
 	},
 };
 
